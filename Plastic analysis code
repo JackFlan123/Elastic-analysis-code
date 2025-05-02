@@ -1,0 +1,99 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Constants
+force = -3200  # kN (negative for downward)
+E = 210e6      # kN/m^2 (210 GPa)
+A = 0.0374    # m^2
+
+# Node coordinates
+Coords = np.array([
+    [0, 0], [7, 0], [14, 0], [21, 0], [28, 0], [35, 0], [42, 0],  # Bottom nodes 0-6
+    [0, 3.4], [7, 3.4], [14, 3.4], [21, 3.4], [28, 3.4], [35, 3.4], [42, 3.4]  # Top nodes 7-13
+])
+
+# Element connectivity
+ElmCon = np.array([
+    # Bottom chord (element [0] to [5])
+    [0,1], [1,2], [2,3], [3,4], [4,5], [5,6],
+    # Verticals
+    [0,7], [1,8], [2,9], [3,10], [4,11], [5,12], [6,13],
+    # Diagonals
+    [0,8], [8,2], [2,10], [10,4], [4,12], [12,6],
+    # Top chord
+    [7,8], [8,9], [9,10], [10,11], [11,12], [12,13]
+])
+
+numnodes = len(Coords)
+numel = len(ElmCon)
+dof = numnodes * 2
+u = np.zeros((dof, 1))
+F = np.zeros((dof, 1))
+
+# Apply nodal forces (top nodes 7–13)
+F[2*7+1]  = force / 2
+F[2*8+1]  = force
+F[2*9+1]  = force
+F[2*10+1] = force
+F[2*11+1] = force
+F[2*12+1] = force
+F[2*13+1] = force / 2
+
+# Global stiffness matrix
+K = np.zeros((dof, dof))
+K1D = np.array([[1, -1], [-1, 1]])
+
+for i in range(numel):
+    start, end = ElmCon[i]
+    x0, y0 = Coords[start]
+    x1, y1 = Coords[end]
+
+    L = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+    c = (x1 - x0) / L
+    s = (y1 - y0) / L
+
+    G = np.array([[c, s, 0, 0], [0, 0, c, s]])
+    Ke = (E * A / L) * G.T @ K1D @ G
+
+    dofs = [2*start, 2*start+1, 2*end, 2*end+1]
+    K[np.ix_(dofs, dofs)] += Ke
+
+# Boundary conditions
+fixdof = np.array([0, 1, 7, 12, 13])  # ux0, uy0, uy3, uy6   (To ajust the supports)<-----------------------------
+freedof = np.setdiff1d(np.arange(dof), fixdof)
+
+# Solve
+u[freedof] = np.linalg.solve(K[np.ix_(freedof, freedof)], F[freedof])
+
+# Plot
+plt.figure(figsize=(15, 6))
+mag = 30  # magnification
+
+# Original truss
+for i in range(numel):
+    n1, n2 = ElmCon[i]
+    plt.plot([Coords[n1,0], Coords[n2,0]], [Coords[n1,1], Coords[n2,1]], 'b-', linewidth=2)
+
+# Displaced truss
+Coords_disp = Coords + u.reshape(-1, 2) * mag
+for i in range(numel):
+    n1, n2 = ElmCon[i]
+    plt.plot([Coords_disp[n1,0], Coords_disp[n2,0]], [Coords_disp[n1,1], Coords_disp[n2,1]], 'r--', linewidth=1.5)
+
+# Node markers
+plt.scatter(Coords[:,0], Coords[:,1], color='blue', label='Original')
+plt.scatter(Coords_disp[:,0], Coords_disp[:,1], color='red', label='Displaced')
+
+plt.title('Truss Deformation (Displacements magnified 30x)')
+plt.xlabel('Length (m)')
+plt.ylabel('Height (m)')
+plt.axis('equal')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+# Print displacements
+print("Nodal Displacements (mm):")
+disp_mm = u.reshape(-1, 2) * 1000
+for i, disp in enumerate(disp_mm):
+    print(f"Node {i:2d}: ux = {disp[0]:8.4f} mm, uy = {disp[1]:8.4f} mm")
